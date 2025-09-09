@@ -1,0 +1,18 @@
+{% extends "boilerplate.html" %}
+
+{% block head %} 
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.cc') }}">
+    <title>WTB</title>
+
+{% endblock %}
+
+{% block body%} 
+
+    <h1>Warframe trade buster</h1>
+    <a href="/fetchframes">Fetch Frames</a>
+    <h4>Current best frame trade: </h4>
+    <h4>{{currentBestFrame}}</h4>
+
+
+
+{% endblock %}

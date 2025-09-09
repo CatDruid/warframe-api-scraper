@@ -388,7 +388,7 @@ def rOICheckAllFrames():
     delta = timedelta(seconds=end - start)
     print(f"Getting best frame trade took: \n {delta}") 
     #print(framecount)
-    return None
+    return resultString
 #endregion
 
 #region Main
@@ -403,7 +403,7 @@ def main():
 
     whiteList = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"]
     #updateItemListJson()
-    rOICheckAllWeapons()
+    #rOICheckAllWeapons()
     rOICheckAllFrames()
     #updateSetsJson(whiteList)
 
