@@ -1,2 +1,2 @@
 .json
-pylance/
+__pycache__/
