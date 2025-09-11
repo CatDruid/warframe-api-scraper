@@ -1,16 +1,27 @@
-import requests
-import json
+#region Imports
+#Require manual install! TODO: requirements.txt
+import requests # pip install requests
+
+# in default pyhon. No need to install
+import json 
 from timeit import default_timer as timer
 from datetime import timedelta
 from pathlib import Path
 
-#Docs https://warframe.market/api_docs
-#Asserts https://warframe.market/static/assets
-
-#region Types
-
 #endregion
 
+#Docs https://warframe.market/api_docs
+#Asserts https://warframe.market/static/assets/
+
+#region Ansi Colors for terminal
+cWhite = "\033[0;37m"
+cRed = "\033[0;31m"
+cGreen = "\033[0;32m"
+cYellow = "\033[0;33m"
+cBlue = "\033[0;34m"
+cPurple = "\033[0;35m"
+cCyan = "\033[0;36m"
+#endregion
 
 #region API Calls
 API = "https://api.warframe.market/v1/"
@@ -79,7 +90,7 @@ def getItem(itemURL: str):
         return None
 #endregion
 
-
+#region Parsing / cleaning of dict/json
 def parseWhiteList(sets: dict,whiteList: list) -> dict:    
 
     '''
@@ -131,6 +142,7 @@ def getLowestPlat(orderDict: dict) -> int:
     '''
 
     lowplat = 9000
+    
     for i in orderDict["payload"]["orders"]:       
         if lowplat != 9000:
             if lowplat > i["platinum"]:
@@ -158,6 +170,7 @@ def getHighestPlat(orderDict: dict) -> int:
 
     return int(highplat)
 
+#endregion
 
 #region Update Jsons
 def updateSetsJson(whiteList: list) -> None:
@@ -295,17 +308,18 @@ def getROIFrame(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
 
     #print(tempItemSet)
 
-def getROIWeapon(itemURL: str, oType: str) -> tuple[int, int]:
+def getROIWeapon(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
 
     '''
     Get the ROI from the provided weapon itemURL
+    checkBuyorder = False == Sell
+    checkBuyorder = True == Buy
     '''
 
     #Vars
     itemSetJson = getItem(itemURL)
     setOrderJson = getItemOrder(itemURL)
     setId = itemSetJson["payload"]["item"]["id"]
-    setsPrice = getLowestPlat(parseOWhiteList(checkOrderType(setOrderJson,oType),["platinum"]))
     tempItemSet = {}
     itemPriceList = [0]
 
@@ -326,12 +340,18 @@ def getROIWeapon(itemURL: str, oType: str) -> tuple[int, int]:
         if obj["set_root"] == False:
             if obj["quantity_for_set"] > 1:
                 totPrice = int(obj["quantity_for_set"]) * getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["url_name"]),"sell"),["platinum"]))
-                print(f"More than one{urlName}")
+                print(f"{cBlue}More than one{urlName}{cWhite}")
                 itemPriceList.append(totPrice)
             else:
                 itemPriceList.append(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["url_name"]),"sell"),["platinum"])))
 
-    rOI = setsPrice - sum(itemPriceList) - 2
+    if checkBuyorder == True:
+        price = getHighestPlat(parseOWhiteList(checkOrderType(setOrderJson,"buy"),["platinum"]))
+    else:
+        price = getLowestPlat(parseOWhiteList(checkOrderType(setOrderJson,"sell"),["platinum"]))
+
+
+    rOI = price - sum(itemPriceList) - 2
    # print(f"Roi on {itemURL} is {rOI} platinum")
     return rOI, sum(itemPriceList)
    # print(sum(itemPriceList))
@@ -349,7 +369,6 @@ def rOICheckAllWeapons() -> None:
     start = timer()
     currentMP = ""
     currentROI = 0
-    framecount = 0
     with open("sets.json", "r") as setsJson:
         sets = json.load(setsJson)
 
@@ -357,27 +376,29 @@ def rOICheckAllWeapons() -> None:
         if "weapon" in i["payload"]["item"]["items_in_set"][0]["tags"]:
             for items in i["payload"]["item"]["items_in_set"]:
                 if items["set_root"] == True:
-                    x = getROIWeapon(items["url_name"],"sell")
+                    x = getROIWeapon(items["url_name"])[0]
                     urlName = str(items["url_name"])
                     if currentMP == "":                        
                         currentROI = x
                         currentMP = items["url_name"]
                     #    print("init roi")
-                        print(f"New best is {urlName} with roi of {x}")
+                        print(f"Initial best is {urlName} with roi of {x}")
                     elif x > currentROI:
                         currentROI = x
                         currentMP = items["url_name"]
-                        print(f"New best is {urlName} with roi of {x}")
-                    else:
-                        print(f"{urlName} is worse, Roi was {x}")
+                        print(f"{cGreen}New best is {urlName} with roi of {x}{cWhite}")
+                    elif x < -1000:
+                        print(f"{cRed}ERROR: {urlName} Out of Bounds, No one online selling?{cWhite} {x}")
+                    else :
+                        print(f"{cYellow}{urlName} is worse, Roi was {x}{cWhite}")
                         continue
 
-                    framecount += 1
     resultString = f"{currentMP} is most profitable with an ROI of {currentROI} platinum"
+    initialInvest = getROIWeapon(currentMP)[1]
+    updateBestPriceJson("weapon",currentMP,currentROI,None,initialInvest)    
     print("-" * len(resultString))
     print(resultString)
     print("-" * len(resultString)) 
-    #print(framecount)
     end = timer()
     delta = timedelta(seconds=end - start)
     print(f"Getting best weapon trade took: \n {delta}")
@@ -408,13 +429,13 @@ def rOICheckAllFrames() -> None:
                         currentROI = x
                         currentMP = items["url_name"]
                     #    print("init roi")
-                        print(f"New best is {urlName} with roi of {x}")
+                        print(f"initial best is {urlName} with roi of {x}")
                     elif x > currentROI:
                         currentROI = x
                         currentMP = items["url_name"]
-                        print(f"New best is {urlName} with roi of {x}")
+                        print(f"{cGreen}New best is {urlName} with roi of {x}{cWhite}")
                     else:
-                        print(f"{urlName} is worse, Roi was {x}")
+                        print(f"{cYellow}{urlName} is worse, Roi was {x}{cWhite}")
                         continue
 
                     framecount += 1
@@ -438,6 +459,8 @@ def rOICheckAllFrames() -> None:
 #region Main
 def main():
 
+    SETSWHITELIST = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"] # Whitelist for the getsets
+
     #Check if items.json and sets.json are present
     itemJsonPath = Path("items.json")
     setsJsonPath = Path("sets.json")
@@ -445,21 +468,43 @@ def main():
         updateItemListJson()
     
     if setsJsonPath.is_file() == False:
-        updateSetsJson()
+        updateSetsJson(SETSWHITELIST)
 
     #Warn if bestFrame.json and bestWeapon is not present
     bestFrameJsonPath = Path("bestFrame.json")
     if bestFrameJsonPath.is_file() == False:
-        print(f"ERROR:{bestFrameJsonPath} not found, Recomended to run rOICheckAllFrames()")
+        print(f"{cRed}ERROR: {bestFrameJsonPath} not found,{cWhite}Recomended to run rOICheckAllFrames()")
+        check = input(f"{cGreen}Do you want to fetch current best Frame?(eta: ~1-2min): [Y/n]{cWhite}")
+        match check.lower():
+
+            case "n":
+                return
+            case "y":
+                rOICheckAllFrames()
+            case "":
+                rOICheckAllFrames()
+            case _:
+                print("Unknown input. Skipping")
+                return
 
     bestWeaponJsonPath = Path("bestWeapon.json")
     if bestWeaponJsonPath.is_file() == False:
-        print(f"ERROR:{bestWeaponJsonPath} not found, Recomended to run rOICheckAllWeapons() ")
+        print(f"{cRed}ERROR: {bestWeaponJsonPath} not found, {cWhite}Recomended to run rOICheckAllWeapons()")
+        match check.lower():
 
-    #whiteList = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"]
+            case "n":
+                return
+            case "y":
+                rOICheckAllWeapons()
+            case "":
+                rOICheckAllWeapons()
+            case _:
+                print("Unknown input. Skipping")
+                return
+    #
     #updateItemListJson()
     #rOICheckAllWeapons()
-    rOICheckAllFrames()
+    #rOICheckAllFrames()
     #updateSetsJson(whiteList)
     #updateBestPriceJson("frame","mag_prime_set",getROIFrame("mag_prime_set")[0], None, getROIFrame("mag_prime_set")[1])
     #oWhiteList = ["platinum"]
