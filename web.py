@@ -1,6 +1,6 @@
 from flask import Flask, render_template, redirect, url_for, request
 import Apiscraper
-
+import json
 
 app = Flask(__name__)
 

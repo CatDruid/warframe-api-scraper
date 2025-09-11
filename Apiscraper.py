@@ -2,8 +2,10 @@ import requests
 import json
 from timeit import default_timer as timer
 from datetime import timedelta
+from pathlib import Path
 
 #Docs https://warframe.market/api_docs
+#Asserts https://warframe.market/static/assets
 
 #region Types
 
@@ -11,13 +13,15 @@ from datetime import timedelta
 
 
 #region API Calls
+API = "https://api.warframe.market/v1/"
+
 def getAllItems():
 
     '''
     Fetch all items
     '''
 
-    url = 'https://api.warframe.market/v1/items'
+    url = f'{API}items'
     params = {'Language':'en'}
     try:
         response = requests.get(url, params=params)
@@ -38,7 +42,7 @@ def getItemOrder(itemURL: str):
     Fetch orders for itemURL 
     '''
 
-    url = f"https://api.warframe.market/v1/items/{itemURL}/orders"
+    url = f"{API}items/{itemURL}/orders"
     params = {}
     try:
         response = requests.get(url, params=params)
@@ -59,7 +63,7 @@ def getItem(itemURL: str):
     Fetch item info of itemURL
     '''
 
-    url = f"https://api.warframe.market/v1/items/{itemURL}"
+    url = f"{API}items/{itemURL}"
     params = {}
     try:
         response = requests.get(url, params=params)
@@ -76,7 +80,7 @@ def getItem(itemURL: str):
 #endregion
 
 
-def parseWhiteList(sets: dict,whiteList: list):    
+def parseWhiteList(sets: dict,whiteList: list) -> dict:    
 
     '''
     Deletes all keys and values from the dictionary that is not part of whiteList on items
@@ -90,7 +94,7 @@ def parseWhiteList(sets: dict,whiteList: list):
         iv += 1
     return sets
 
-def parseOWhiteList(sets:dict ,whiteList: list):    
+def parseOWhiteList(sets:dict ,whiteList: list) -> dict:    
 
     '''
     Deletes all keys and values from the dictionary that is not part of whiteList on orders
@@ -104,7 +108,7 @@ def parseOWhiteList(sets:dict ,whiteList: list):
         iv += 1
     return sets
 
-def checkOrderType(orderDict: dict, oType: str):
+def checkOrderType(orderDict: dict, oType: str) -> dict:
 
     '''
     Checks if its a buy or a sell order on warframe.market
@@ -118,10 +122,9 @@ def checkOrderType(orderDict: dict, oType: str):
     except:
         print("Error getting order type")
 
-    newOrderDict: dict
     return newOrderDict
 
-def getLowestPlat(orderDict: dict):
+def getLowestPlat(orderDict: dict) -> int:
 
     '''
     Takes the dictionary from getItemOrder and returns the lowest price of that item on warframe.market
@@ -138,7 +141,7 @@ def getLowestPlat(orderDict: dict):
 
     return int(lowplat)
 
-def getHighestPlat(orderDict: dict):
+def getHighestPlat(orderDict: dict) -> int:
 
     '''
     Takes the dictionary from getItemOrder and returns the lowest price of that item on warframe.market
@@ -157,7 +160,7 @@ def getHighestPlat(orderDict: dict):
 
 
 #region Update Jsons
-def updateSetsJson(whiteList: list):
+def updateSetsJson(whiteList: list) -> None:
 
     '''
     Takes a whiteList of keys to keep from the json
@@ -180,7 +183,6 @@ def updateSetsJson(whiteList: list):
         if urlName.find("set") != -1:
             sets += 1
             tempsets.append(parseWhiteList(getItem(urlName),whiteList))
-    print(sets)
 
     if tempsets:     
         with open("sets.json", "w") as setsjson:
@@ -201,16 +203,53 @@ def updateItemListJson():
 
     posts = getAllItems()
     if posts:
-        print(posts)
         with open('items.json', 'w') as f:
             json.dump(posts, f)
     else:
         print('Failed to fetch items from API.')
 
+
+def updateBestPriceJson(iType: str,urlName: str, ROI: int = 0, trades: dict = None ,initialInvest: int = 0) -> None:
+    '''
+    Creates "best.json" with all information provided and json provided from grabbing url_name on api
+    '''
+
+    match iType:
+
+        case "frame":
+            file = "bestFrame.json"
+
+        case "weapon":
+            file = "bestWeapon.json"
+
+        case _:
+            print("ERROR: iType not 'frame' or 'weapon'")
+            return None
+
+    #Sets inital variables
+    createDict = {"payload":{}}
+    whiteList = ["set_root","thumb","icon","url_name","id","tags","trading_tax","en"]
+    itemJson = getItem(urlName)
+    parsedItemsJson = parseWhiteList(itemJson, whiteList)
+
+    
+    for item in parsedItemsJson["payload"]["item"]["items_in_set"]:
+        if item["set_root"] == True:
+            createDict["payload"].update(item)
+            if ROI > 0:
+                createDict["payload"]["Platinum ROI"] = ROI
+            if initialInvest > 0:
+                createDict["payload"]["Initial Invest"] = initialInvest
+    
+    with open(file, "w") as temp:
+        json.dump(createDict, temp)
+    
+
+
 #endregion
 
 #region ROI
-def getROIFrame(itemURL: str, checkBuyorder = False):
+def getROIFrame(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
 
     '''
     Gets the ROI of the provided warframe itemURL
@@ -249,14 +288,14 @@ def getROIFrame(itemURL: str, checkBuyorder = False):
 
     rOI = price - sum(itemPriceList) - 2
    # print(f"Roi on {itemURL} is {rOI} platinum")
-    return int(rOI)
+    return rOI, sum(itemPriceList)
    # print(sum(itemPriceList))
 
  #   print(setsPrice)
 
     #print(tempItemSet)
 
-def getROIWeapon(itemURL: str, oType: str):
+def getROIWeapon(itemURL: str, oType: str) -> tuple[int, int]:
 
     '''
     Get the ROI from the provided weapon itemURL
@@ -294,14 +333,14 @@ def getROIWeapon(itemURL: str, oType: str):
 
     rOI = setsPrice - sum(itemPriceList) - 2
    # print(f"Roi on {itemURL} is {rOI} platinum")
-    return int(rOI)
+    return rOI, sum(itemPriceList)
    # print(sum(itemPriceList))
 
  #   print(setsPrice)
 
     #print(tempItemSet)
 
-def rOICheckAllWeapons():
+def rOICheckAllWeapons() -> None:
 
     '''
     Checks all of the ROI on all weapons in sets.json
@@ -345,12 +384,13 @@ def rOICheckAllWeapons():
     return None
 
 
-def rOICheckAllFrames():
+def rOICheckAllFrames() -> None:
 
     '''
-    Checks the ROI on all of the warframes in sets.json       
+    Checks the ROI on all of the warframes in "sets.json" 
+    Calls updateBestPriceJson with flag "frame" to generate "bestFrame.json"   
     '''
-
+    
     start = timer()
     currentMP = ""
     currentROI = 0
@@ -362,7 +402,7 @@ def rOICheckAllFrames():
         if "warframe" in i["payload"]["item"]["items_in_set"][0]["tags"]:
             for items in i["payload"]["item"]["items_in_set"]:
                 if items["set_root"] == True:
-                    x = getROIFrame(items["url_name"])
+                    x = getROIFrame(items["url_name"])[0]
                     urlName = str(items["url_name"])
                     if currentMP == "":                        
                         currentROI = x
@@ -380,10 +420,14 @@ def rOICheckAllFrames():
                     framecount += 1
 
     end = timer()
-    fastreturn = getROIFrame(str(currentMP), True)
-    resultString = f"{currentMP} is most profitable with an ROI of {currentROI} platinum \nFastreturn: {fastreturn} platinum"
+    
+    fastreturn = getROIFrame(str(currentMP), True)[0]
+    initialInvest = getROIFrame(str(currentMP), False)[1]
+    resultString = f"{currentMP} is most profitable with an ROI of {currentROI} platinum"
+    updateBestPriceJson("frame",currentMP,currentROI,None,initialInvest)
     print("-" * len(resultString))
     print(resultString)
+    print(f"Fast return:{fastreturn}")
     print("-" * len(resultString))
     delta = timedelta(seconds=end - start)
     print(f"Getting best frame trade took: \n {delta}") 
@@ -394,20 +438,31 @@ def rOICheckAllFrames():
 #region Main
 def main():
 
+    #Check if items.json and sets.json are present
+    itemJsonPath = Path("items.json")
+    setsJsonPath = Path("sets.json")
+    if itemJsonPath.is_file() == False:
+        updateItemListJson()
     
-   # print(itemDict)
-    
-    
-    tempsets = []
-    sets = 0
+    if setsJsonPath.is_file() == False:
+        updateSetsJson()
 
-    whiteList = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"]
+    #Warn if bestFrame.json and bestWeapon is not present
+    bestFrameJsonPath = Path("bestFrame.json")
+    if bestFrameJsonPath.is_file() == False:
+        print(f"ERROR:{bestFrameJsonPath} not found, Recomended to run rOICheckAllFrames()")
+
+    bestWeaponJsonPath = Path("bestWeapon.json")
+    if bestWeaponJsonPath.is_file() == False:
+        print(f"ERROR:{bestWeaponJsonPath} not found, Recomended to run rOICheckAllWeapons() ")
+
+    #whiteList = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"]
     #updateItemListJson()
     #rOICheckAllWeapons()
     rOICheckAllFrames()
     #updateSetsJson(whiteList)
-
-    oWhiteList = ["platinum"]
+    #updateBestPriceJson("frame","mag_prime_set",getROIFrame("mag_prime_set")[0], None, getROIFrame("mag_prime_set")[1])
+    #oWhiteList = ["platinum"]
    # print(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder("mag_prime_set"),"sell"),oWhiteList)))
    # with open("temp.json", "w") as tempJson:
    #    json.dump(checkOrderType(getItemOrder("quassus_prime_set"),"sell"), tempJson)
