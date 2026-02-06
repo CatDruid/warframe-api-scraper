@@ -7,6 +7,7 @@ import json
 from timeit import default_timer as timer
 from datetime import timedelta
 from pathlib import Path
+import psycopg2
 
 #endregion
 
@@ -23,8 +24,110 @@ cPurple = "\033[0;35m"
 cCyan = "\033[0;36m"
 #endregion
 
+#region Database integration
+#globals    
+
+
+def dbInit():
+    global cursor
+    global conn
+    try:
+        conn = psycopg2.connect(
+            dbname="warframe",
+            user="postgres",
+            password="*",
+            host="192.168.0.110"
+        )
+        cursor = conn.cursor()
+        print('connected sucessfully')
+    except Exception as e:
+        print(f'{cRed}Error: {cWhite}', e)
+
+def dbInsertItems(dictionary: dict) -> None:
+    if conn is not None and cursor is not None:
+        megastring = ""
+        for i in dictionary["data"]:
+            key_string = ""
+            value_string = ""
+            for k in i.keys():
+                match k:
+                    case "id":
+                        key_string += 'item_id'
+                        value_string += f"'{i["id"]}'"
+                    case "slug":
+                        key_string += ', slug'
+                        value_string += f",'{i["slug"]}'"
+                    case "gameRef":
+                        key_string += ', game_ref'
+                        value_string += f",'{i["gameRef"]}'"
+                    case "tags":
+                            tag_string = ""
+                            for tag in i["tags"]:
+                                tag_string += tag + ","
+                            key_string += ', item_tags'
+                            value_string += f",'{{{tag_string[:-1]}}}'" 
+
+                    case "bulkTradable":
+                        key_string += ", bulk_tradable"
+                        value_string += f',{i["bulkTradable"]}'
+                    case "maxRank":
+                        key_string += ', max_rank'
+                        value_string += f',{i["maxRank"]}'
+                    case "i18n":
+                        key_string += ', item_name'
+                        value_string += f",'{i["i18n"]["en"]["name"].replace("'","''")}'"
+
+                        key_string += ', item_icon'
+                        value_string += f",'{i["i18n"]["en"]["icon"]}'"
+
+                        key_string += ', item_thumb'
+                        value_string += f",'{i["i18n"]["en"]["thumb"]}'"
+            #print(key_string)
+            #print(value_string)
+            #print(f"insert into items ({key_string}) values ({value_string});")
+            megastring += f'insert into items ({key_string}) values ({value_string});'
+            ''' try:
+                cursor.execute(f'insert into items ({key_string}) values ({value_string});')
+            except Exception as e:
+                print(f"{cRed}Error: {cWhite}", e) 
+            '''
+            print(f"inserted: {slug}")
+       # print(megastring)
+        try:
+            cursor.execute(megastring)
+        except Exception as e:
+            print(f"{cRed}Error: {cWhite}", e) 
+
+def db_insertItem(dictionary:dict):
+     if conn is not None and cursor is not None:
+        megastring = ""
+        for i in dictionary["data"]:
+            key_string = ""
+            value_string = ""
+            item_id = None
+            slug = None
+            game_ref = None
+            item_tags = None
+            set_root = None
+            set_parts = None
+            ducats = None
+            req_mastery_rank = None
+            trading_tax = None
+            tradable = None
+            item_name = None
+            item_description = None
+            item_wiki = None
+            item_icon = None
+            item_thumb = None
+
+
+def db_filterreturn(unf):
+    return unf[0]
+#endregion
+
 #region API Calls
-API = "https://api.warframe.market/v1/"
+API = "https://api.warframe.market/v2/"
+ASSETS = "https://warframe.market/static/assets/"
 
 def getAllItems():
 
@@ -88,6 +191,24 @@ def getItem(itemURL: str):
     except requests.exceptions.RequestException as e:
         print("Error:", e)
         return None
+
+def testApi(iurl: str): 
+
+    url = f'{API}{iurl}'
+    params = {'Language':'en'}
+    try:
+        response = requests.get(url, params=params)
+
+        if response.status_code == 200:
+            posts = response.json()
+            return posts
+        else:
+            print('Error:', response.status_code)
+            return None
+    except requests.exceptions.RequestException as e:
+        print('Error:', e)
+        return None
+
 #endregion
 
 #region Parsing / cleaning of dict/json
@@ -170,6 +291,46 @@ def getHighestPlat(orderDict: dict) -> int:
 
     return int(highplat)
 
+def itemIDToSlug(itemID: str) -> str:
+    '''
+    Docstring for itemIDToSlug
+    
+    :param itemID: Takes item ID
+    :type itemID: string
+    :return: Item Slug
+    :rtype: string
+    '''
+    try:
+        with open ("items.json", "r") as f:
+            dict = json.load(f)
+    except Exception as e:
+        print("{cRed}Error: {cWhite}" + e)
+
+    for i in dict["data"]:
+        if i["id"] == itemID:
+            return i["slug"]
+    return None
+
+def slugToItemID(slug: str) -> str:
+    '''
+    Docstring for itemIDToSlug
+    
+    :param itemID: Takes item ID
+    :type itemID: string
+    :return: Item Slug
+    :rtype: string
+    '''
+    try:
+        with open ("items.json", "r") as f:
+            dict = json.load(f)
+    except Exception as e:
+        print("{cRed}Error: {cWhite}" + e)
+
+    for i in dict["data"]:
+        if i["slug"] == slug:
+            return i["id"]
+    return None
+
 #endregion
 
 #region Update Jsons
@@ -185,6 +346,7 @@ def updateSetsJson(whiteList: list) -> None:
     sets = 0
     itemDict = []
     tempsets = []
+    print("Making sets.json from items.json")
     with open("items.json", "r") as itemjson:
         itemDict = json.load(itemjson)
 
@@ -240,7 +402,7 @@ def updateBestPriceJson(iType: str,urlName: str, ROI: int = 0, trades: dict = No
             return None
 
     #Sets inital variables
-    createDict = {"payload":{}}
+    createDict = {"data":[]}
     whiteList = ["set_root","thumb","icon","url_name","id","tags","trading_tax","en"]
     itemJson = getItem(urlName)
     parsedItemsJson = parseWhiteList(itemJson, whiteList)
@@ -271,7 +433,7 @@ def getROIFrame(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
     #Vars
     itemSetJson = getItem(itemURL)
     setOrderJson = getItemOrder(itemURL)
-    setId = itemSetJson["payload"]["item"]["id"]
+    setId = itemSetJson["data"]["item"]["id"]
     tempItemSet = {}
     itemPriceList = []
     #setsPrice = getLowestPlat(parseOWhiteList(checkOrderType(setOrderJson,"sell"),["platinum"]))
@@ -490,6 +652,7 @@ def main():
     bestWeaponJsonPath = Path("bestWeapon.json")
     if bestWeaponJsonPath.is_file() == False:
         print(f"{cRed}ERROR: {bestWeaponJsonPath} not found, {cWhite}Recomended to run rOICheckAllWeapons()")
+        check = input(f"{cGreen}Do you want to fetch current best Frame?(eta: ~1-2min): [Y/n]{cWhite}")
         match check.lower():
 
             case "n":
@@ -504,7 +667,7 @@ def main():
     #
     #updateItemListJson()
     #rOICheckAllWeapons()
-    #rOICheckAllFrames()
+    rOICheckAllFrames()
     #updateSetsJson(whiteList)
     #updateBestPriceJson("frame","mag_prime_set",getROIFrame("mag_prime_set")[0], None, getROIFrame("mag_prime_set")[1])
     #oWhiteList = ["platinum"]
@@ -518,5 +681,25 @@ def main():
 
 #endregion
 
+def test():
+    '''
+
+    '''
+    dbInit()
+    if conn is not None and cursor is not None:
+        with open ("items.json", "r") as f:
+            dictionary = json.load(f)
+        #dbInsertItems(dictionary)
+        cursor.execute("select item_id from items where 'set'=any(item_tags) and 'warframe'=any(item_tags)")
+        res = cursor.fetchall()
+        for i in res:
+            print(db_filterreturn(i))
+        inp = input("commit? N/y\n").lower()
+        match inp:
+            case "y":
+                conn.commit()
+
+        conn.close()
 if __name__ == '__main__':
-    main()
+    with open ("text.json", "w") as f:
+        json.dump(testApi(f"item/frost_prime_set"),f)
