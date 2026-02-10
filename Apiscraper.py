@@ -5,9 +5,11 @@ import requests # pip install requests
 # in default pyhon. No need to install
 import json 
 from timeit import default_timer as timer
+import time
 from datetime import timedelta
 from pathlib import Path
 import psycopg2
+import datetime
 
 #endregion
 
@@ -43,6 +45,13 @@ def dbInit():
     except Exception as e:
         print(f'{cRed}Error: {cWhite}', e)
 
+def db_execute(sql: str) -> bool:
+    if conn is not None and cursor is not None:
+        try:
+            cursor.execute(sql)
+        except Exception as e:
+            print(f"{cRed}Error: {cWhite}", e) 
+
 def dbInsertItems(dictionary: dict) -> None:
     if conn is not None and cursor is not None:
         megastring = ""
@@ -55,6 +64,7 @@ def dbInsertItems(dictionary: dict) -> None:
                         key_string += 'item_id'
                         value_string += f"'{i["id"]}'"
                     case "slug":
+                        slug = i["slug"]
                         key_string += ', slug'
                         value_string += f",'{i["slug"]}'"
                     case "gameRef":
@@ -93,10 +103,7 @@ def dbInsertItems(dictionary: dict) -> None:
             '''
             print(f"inserted: {slug}")
        # print(megastring)
-        try:
-            cursor.execute(megastring)
-        except Exception as e:
-            print(f"{cRed}Error: {cWhite}", e) 
+        db_execute(megastring)
 
 def db_insertItem(dictionary:dict):
      if conn is not None and cursor is not None:
@@ -108,11 +115,11 @@ def db_insertItem(dictionary:dict):
             slug = None
             game_ref = None
             item_tags = None
-            set_root = None
+            setRoot = None
             set_parts = None
             ducats = None
             req_mastery_rank = None
-            trading_tax = None
+            tradingTax = None
             tradable = None
             item_name = None
             item_description = None
@@ -123,6 +130,11 @@ def db_insertItem(dictionary:dict):
 
 def db_filterreturn(unf):
     return unf[0]
+
+def db_insertROI(item_id: str, roi: int) -> None:
+    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    sqlString = f"insert into frame_roi(item_id,roi,fetch_date) values ('{item_id}',{roi},'{now}');"
+    db_execute(sqlString)
 #endregion
 
 #region API Calls
@@ -156,7 +168,7 @@ def getItemOrder(itemURL: str):
     Fetch orders for itemURL 
     '''
 
-    url = f"{API}items/{itemURL}/orders"
+    url = f"{API}orders/item/{itemURL}"
     params = {}
     try:
         response = requests.get(url, params=params)
@@ -218,12 +230,10 @@ def parseWhiteList(sets: dict,whiteList: list) -> dict:
     Deletes all keys and values from the dictionary that is not part of whiteList on items
     '''
 
-    iv = 0
-    for i in sets["payload"]["item"]["items_in_set"]:
-        for k in sets["payload"]["item"]["items_in_set"][iv].copy():
-            if k not in whiteList:
-                sets["payload"]["item"]["items_in_set"][iv].pop(k)
-        iv += 1
+    orderList = sets["data"]
+    for k in orderList.copy():
+        if k not in whiteList:
+            orderList.pop(k)
     return sets
 
 def parseOWhiteList(sets:dict ,whiteList: list) -> dict:    
@@ -232,12 +242,11 @@ def parseOWhiteList(sets:dict ,whiteList: list) -> dict:
     Deletes all keys and values from the dictionary that is not part of whiteList on orders
     '''
 
-    iv = 0
-    for i in sets["payload"]["orders"]:
-        for k in sets["payload"]["orders"][iv].copy():
+    orderList = sets["data"]
+    for i in range(len(orderList)):
+        for k in orderList[i].copy():
             if k not in whiteList:
-                sets["payload"]["orders"][iv].pop(k)
-        iv += 1
+                orderList[i].pop(k)
     return sets
 
 def checkOrderType(orderDict: dict, oType: str) -> dict:
@@ -246,14 +255,16 @@ def checkOrderType(orderDict: dict, oType: str) -> dict:
     Checks if its a buy or a sell order on warframe.market
     '''
 
-    newOrderDict = {"payload":{"orders": []}}
+    orderlist = []
     try:
-        for obj in orderDict["payload"]["orders"]:
-            if obj["order_type"] == oType and obj["user"]["status"] == "ingame":
-                newOrderDict["payload"]["orders"].append(obj)
+        for obj in orderDict["data"]:
+            if obj["type"] == oType and obj["user"]["status"] == "ingame":
+                orderlist.append(obj)
     except:
         print("Error getting order type")
 
+    newOrderDict = {"data":[]}
+    newOrderDict["data"] = orderlist
     return newOrderDict
 
 def getLowestPlat(orderDict: dict) -> int:
@@ -264,7 +275,7 @@ def getLowestPlat(orderDict: dict) -> int:
 
     lowplat = 9000
     
-    for i in orderDict["payload"]["orders"]:       
+    for i in orderDict["data"]:       
         if lowplat != 9000:
             if lowplat > i["platinum"]:
                 lowplat = i["platinum"]
@@ -281,7 +292,7 @@ def getHighestPlat(orderDict: dict) -> int:
     '''
 
     highplat = 9000
-    for i in orderDict["payload"]["orders"]:       
+    for i in orderDict["data"]:       
         if highplat != 9000:
             if highplat < i["platinum"]:
                 highplat = i["platinum"]
@@ -350,10 +361,10 @@ def updateSetsJson(whiteList: list) -> None:
     with open("items.json", "r") as itemjson:
         itemDict = json.load(itemjson)
 
-    for i in itemDict["payload"]["items"]:
+    for v in itemDict["data"]:
         amount +=1
-        #print(itemDict["payload"]["items"][i])
-        urlName = i["url_name"]
+        #print(itemDict["data"]["items"][i])
+        urlName = v["slug"]
         
         if urlName.find("set") != -1:
             sets += 1
@@ -386,7 +397,7 @@ def updateItemListJson():
 
 def updateBestPriceJson(iType: str,urlName: str, ROI: int = 0, trades: dict = None ,initialInvest: int = 0) -> None:
     '''
-    Creates "best.json" with all information provided and json provided from grabbing url_name on api
+    Creates "best.json" with all information provided and json provided from grabbing slug on api
     '''
 
     match iType:
@@ -403,18 +414,18 @@ def updateBestPriceJson(iType: str,urlName: str, ROI: int = 0, trades: dict = No
 
     #Sets inital variables
     createDict = {"data":[]}
-    whiteList = ["set_root","thumb","icon","url_name","id","tags","trading_tax","en"]
+    whiteList = ["setRoot","thumb","icon","slug","id","tags","tradingTax","i18n", "setParts"]
     itemJson = getItem(urlName)
     parsedItemsJson = parseWhiteList(itemJson, whiteList)
 
     
-    for item in parsedItemsJson["payload"]["item"]["items_in_set"]:
-        if item["set_root"] == True:
-            createDict["payload"].update(item)
+    for item in parsedItemsJson["data"]["setParts"]:
+        if item == parsedItemsJson["data"]["id"]:
+            createDict["data"].update(item)
             if ROI > 0:
-                createDict["payload"]["Platinum ROI"] = ROI
+                createDict["data"]["Platinum ROI"] = ROI
             if initialInvest > 0:
-                createDict["payload"]["Initial Invest"] = initialInvest
+                createDict["data"]["Initial Invest"] = initialInvest
     
     with open(file, "w") as temp:
         json.dump(createDict, temp)
@@ -433,7 +444,7 @@ def getROIFrame(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
     #Vars
     itemSetJson = getItem(itemURL)
     setOrderJson = getItemOrder(itemURL)
-    setId = itemSetJson["data"]["item"]["id"]
+    setId = itemSetJson["data"]["id"]
     tempItemSet = {}
     itemPriceList = []
     #setsPrice = getLowestPlat(parseOWhiteList(checkOrderType(setOrderJson,"sell"),["platinum"]))
@@ -447,13 +458,13 @@ def getROIFrame(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
     #print(setId)
 
     for obj in setsDict:
-        if obj["payload"]["item"]["id"] == setId:
-            tempItemSet.update(obj["payload"]["item"])
+        if obj["data"]["id"] == setId:
+            tempItemSet.update(obj["data"])
             #print("added asset")
     
-    for obj in tempItemSet["items_in_set"]:
-        if obj["set_root"] == False:
-            itemPriceList.append(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["url_name"]),"sell"),["platinum"])))
+    for item in tempItemSet["setParts"]:
+        if item != setId:
+            itemPriceList.append(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(itemIDToSlug(item)),"sell"),["platinum"])))
 
 
     if checkBuyorder == True:
@@ -481,7 +492,7 @@ def getROIWeapon(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
     #Vars
     itemSetJson = getItem(itemURL)
     setOrderJson = getItemOrder(itemURL)
-    setId = itemSetJson["payload"]["item"]["id"]
+    setId = itemSetJson["data"]["id"]
     tempItemSet = {}
     itemPriceList = [0]
 
@@ -492,20 +503,20 @@ def getROIWeapon(itemURL: str, checkBuyorder = False) -> tuple[int, int]:
 
     #get Set ID
     for obj in setsDict:
-        if obj["payload"]["item"]["id"] == setId:
-            tempItemSet.update(obj["payload"]["item"])
+        if obj["data"]["id"] == setId:
+            tempItemSet.update(obj["data"])
             #print("added asset")
     
     #Make Shopping list
-    for obj in tempItemSet["items_in_set"]:
-        urlName = str(obj["url_name"])
-        if obj["set_root"] == False:
-            if obj["quantity_for_set"] > 1:
-                totPrice = int(obj["quantity_for_set"]) * getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["url_name"]),"sell"),["platinum"]))
+    for obj in tempItemSet["setParts"]:
+        urlName = str(obj["slug"])
+        if obj["setRoot"] == False:
+            if obj["quantityInSet"] > 1:
+                totPrice = int(obj["quantityInSet"]) * getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["slug"]),"sell"),["platinum"]))
                 print(f"{cBlue}More than one{urlName}{cWhite}")
                 itemPriceList.append(totPrice)
             else:
-                itemPriceList.append(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["url_name"]),"sell"),["platinum"])))
+                itemPriceList.append(getLowestPlat(parseOWhiteList(checkOrderType(getItemOrder(obj["slug"]),"sell"),["platinum"])))
 
     if checkBuyorder == True:
         price = getHighestPlat(parseOWhiteList(checkOrderType(setOrderJson,"buy"),["platinum"]))
@@ -535,26 +546,25 @@ def rOICheckAllWeapons() -> None:
         sets = json.load(setsJson)
 
     for i in sets:
-        if "weapon" in i["payload"]["item"]["items_in_set"][0]["tags"]:
-            for items in i["payload"]["item"]["items_in_set"]:
-                if items["set_root"] == True:
-                    x = getROIWeapon(items["url_name"])[0]
-                    urlName = str(items["url_name"])
+        if "weapon" in i["data"]["setParts"][0]["tags"]:
+            for items in i["data"]["setParts"]:
+                if items["setRoot"] == True:
+                    x = getROIWeapon(items["slug"])[0]
+                    urlName = str(items["slug"])
                     if currentMP == "":                        
                         currentROI = x
-                        currentMP = items["url_name"]
+                        currentMP = items["slug"]
                     #    print("init roi")
                         print(f"Initial best is {urlName} with roi of {x}")
                     elif x > currentROI:
                         currentROI = x
-                        currentMP = items["url_name"]
+                        currentMP = items["slug"]
                         print(f"{cGreen}New best is {urlName} with roi of {x}{cWhite}")
                     elif x < -1000:
                         print(f"{cRed}ERROR: {urlName} Out of Bounds, No one online selling?{cWhite} {x}")
                     else :
                         print(f"{cYellow}{urlName} is worse, Roi was {x}{cWhite}")
                         continue
-
     resultString = f"{currentMP} is most profitable with an ROI of {currentROI} platinum"
     initialInvest = getROIWeapon(currentMP)[1]
     updateBestPriceJson("weapon",currentMP,currentROI,None,initialInvest)    
@@ -578,36 +588,37 @@ def rOICheckAllFrames() -> None:
     currentMP = ""
     currentROI = 0
     framecount = 0
+
     with open("sets.json", "r") as setsJson:
         sets = json.load(setsJson)
 
     for i in sets:
-        if "warframe" in i["payload"]["item"]["items_in_set"][0]["tags"]:
-            for items in i["payload"]["item"]["items_in_set"]:
-                if items["set_root"] == True:
-                    x = getROIFrame(items["url_name"])[0]
-                    urlName = str(items["url_name"])
-                    if currentMP == "":                        
-                        currentROI = x
-                        currentMP = items["url_name"]
-                    #    print("init roi")
-                        print(f"initial best is {urlName} with roi of {x}")
-                    elif x > currentROI:
-                        currentROI = x
-                        currentMP = items["url_name"]
-                        print(f"{cGreen}New best is {urlName} with roi of {x}{cWhite}")
-                    else:
-                        print(f"{cYellow}{urlName} is worse, Roi was {x}{cWhite}")
-                        continue
+        if "warframe" in i["data"]["tags"]:
+            #print(i)
+            if i["data"]["setRoot"] == True:
+                x = getROIFrame(i["data"]["slug"])[0]
+                urlName = str(i["data"]["slug"])
+                if currentMP == "":                        
+                    currentROI = x
+                    currentMP = i["data"]["slug"]
+                #    print("init roi")
+                    print(f"initial best is {urlName} with roi of {x}")
+                elif x > currentROI:
+                    currentROI = x
+                    currentMP = i["data"]["slug"]
+                    print(f"{cGreen}New best is {urlName} with roi of {x}{cWhite}")
+                else:
+                    print(f"{cYellow}{urlName} is worse, Roi was {x}{cWhite}")
 
-                    framecount += 1
+                db_insertROI(slugToItemID(urlName),x)
+                framecount += 1
 
     end = timer()
     
     fastreturn = getROIFrame(str(currentMP), True)[0]
     initialInvest = getROIFrame(str(currentMP), False)[1]
     resultString = f"{currentMP} is most profitable with an ROI of {currentROI} platinum"
-    updateBestPriceJson("frame",currentMP,currentROI,None,initialInvest)
+    #updateBestPriceJson("frame",currentMP,currentROI,None,initialInvest)
     print("-" * len(resultString))
     print(resultString)
     print(f"Fast return:{fastreturn}")
@@ -621,7 +632,7 @@ def rOICheckAllFrames() -> None:
 #region Main
 def main():
 
-    SETSWHITELIST = ["url_name","tags","id","ducats","mastery_level","set_root","trading_tax", "quantity_for_set"] # Whitelist for the getsets
+    SETSWHITELIST = ["slug","tags","id","ducats","mastery_level","setRoot","tradingTax", "quantityInSet","setParts"] # Whitelist for the getsets
 
     #Check if items.json and sets.json are present
     itemJsonPath = Path("items.json")
@@ -690,7 +701,7 @@ def test():
         with open ("items.json", "r") as f:
             dictionary = json.load(f)
         #dbInsertItems(dictionary)
-        cursor.execute("select item_id from items where 'set'=any(item_tags) and 'warframe'=any(item_tags)")
+        cursor.execute("select set_parts from items where 'set'=any(item_tags) and 'warframe'=any(item_tags)")
         res = cursor.fetchall()
         for i in res:
             print(db_filterreturn(i))
@@ -700,6 +711,15 @@ def test():
                 conn.commit()
 
         conn.close()
+
+def download_test_orders():
+    with open("ordertest.json", "r") as f:
+        setOrderJson = json.load(f)
+    
+    print(getHighestPlat(parseOWhiteList(checkOrderType(setOrderJson,"buy"),["platinum"])))
+    
 if __name__ == '__main__':
-    with open ("text.json", "w") as f:
-        json.dump(testApi(f"item/frost_prime_set"),f)
+    dbInit()
+    rOICheckAllFrames()
+    conn.commit()
+    conn.close()
